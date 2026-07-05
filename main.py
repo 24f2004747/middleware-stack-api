@@ -13,8 +13,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://app-e8g7ew.example.com",
-        "https://exam.sanand.workers.dev",
     ],
+    allow_origin_regex=r"https://.*\.workers\.dev",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
