@@ -8,7 +8,26 @@ app = FastAPI()
 
 EMAIL = "24f2004747@ds.study.iitm.ac.in"
 
-# CORS
+RATE_LIMIT = 10
+WINDOW = 10
+
+clients = {}
+
+# Request ID middleware
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID")
+    if not request_id:
+        request_id = str(uuid.uuid4())
+
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+# ADD CORS AFTER CUSTOM MIDDLEWARE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -21,56 +40,33 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 
-RATE_LIMIT = 14
-WINDOW = 10
-clients = {}
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
 
 
-@app.middleware("http")
-async def request_context(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID")
-    if request_id is None:
-        request_id = str(uuid.uuid4())
-
-    request.state.request_id = request_id
-
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
-
-
-@app.middleware("http")
-async def rate_limit(request: Request, call_next):
-    # Don't rate-limit browser preflight
-    if request.method == "OPTIONS":
-        return await call_next(request)
-
+@app.get("/ping")
+async def ping(request: Request):
     client = request.headers.get("X-Client-Id", "default")
 
     now = time.time()
 
-    bucket = [t for t in clients.get(client, []) if now - t < WINDOW]
+    timestamps = [
+        t for t in clients.get(client, [])
+        if now - t < WINDOW
+    ]
 
-    if len(bucket) >= RATE_LIMIT:
+    if len(timestamps) >= RATE_LIMIT:
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded"},
         )
 
-    bucket.append(now)
-    clients[client] = bucket
+    timestamps.append(now)
+    clients[client] = timestamps
 
-    return await call_next(request)
-
-
-@app.get("/ping")
-async def ping(request: Request):
     return {
         "email": EMAIL,
         "request_id": request.state.request_id,
     }
-
-
-@app.get("/")
-async def root():
-    return {"status": "ok"}
