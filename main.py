@@ -8,22 +8,24 @@ app = FastAPI()
 
 EMAIL = "24f2004747@ds.study.iitm.ac.in"
 
-# Add CORS FIRST
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://app-e8g7ew.example.com",
     ],
+    # Allow the exam page origin (workers.dev)
     allow_origin_regex=r"https://.*\.workers\.dev",
     allow_credentials=False,
-    allow_methods=["*"],
+    allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
 
 RATE_LIMIT = 10
 WINDOW = 10
-rate_limit = {}
+
+client_requests = {}
 
 
 @app.middleware("http")
@@ -43,8 +45,8 @@ async def request_context(request: Request, call_next):
 
 
 @app.middleware("http")
-async def limiter(request: Request, call_next):
-    # Never rate-limit CORS preflight
+async def rate_limit(request: Request, call_next):
+    # Never rate-limit preflight requests
     if request.method == "OPTIONS":
         return await call_next(request)
 
@@ -52,7 +54,9 @@ async def limiter(request: Request, call_next):
 
     now = time.time()
 
-    bucket = [t for t in rate_limit.get(client, []) if now - t < WINDOW]
+    bucket = client_requests.get(client, [])
+
+    bucket = [t for t in bucket if now - t < WINDOW]
 
     if len(bucket) >= RATE_LIMIT:
         return JSONResponse(
@@ -61,7 +65,7 @@ async def limiter(request: Request, call_next):
         )
 
     bucket.append(now)
-    rate_limit[client] = bucket
+    client_requests[client] = bucket
 
     return await call_next(request)
 
@@ -72,9 +76,3 @@ async def ping(request: Request):
         "email": EMAIL,
         "request_id": request.state.request_id,
     }
-
-
-@app.options("/{path:path}")
-async def options_handler(path: str):
-    # CORSMiddleware will attach the correct CORS headers.
-    return {}
